@@ -3,12 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Подбор рубрик</title>
+  <title>Подбор рубрик Казахстан</title>
   <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
   <style>
-    * {
-      box-sizing: border-box;
-    }
+    * { box-sizing: border-box; }
 
     body {
       margin: 0;
@@ -26,22 +24,6 @@
     h1 {
       margin: 0 0 20px;
       font-size: 32px;
-    }
-
-    .top-panel {
-      margin-bottom: 20px;
-      display: flex;
-      gap: 12px;
-      align-items: center;
-      flex-wrap: wrap;
-    }
-
-    .file-info {
-      padding: 10px 14px;
-      background: #fff;
-      border-radius: 10px;
-      border: 1px solid #d9e0ea;
-      color: #444;
     }
 
     .layout {
@@ -62,7 +44,40 @@
 
     .panel-title {
       font-size: 20px;
+      margin: 0 0 8px;
+    }
+
+    .panel-subtitle {
+      font-size: 14px;
+      color: #666;
       margin: 0 0 15px;
+    }
+
+    .counter-box {
+      margin: 0 0 16px;
+      padding: 12px 14px;
+      border-radius: 10px;
+      background: #f4f8ff;
+      border: 1px solid #d8e6ff;
+      color: #2f4f7f;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .limit-message {
+      display: none;
+      margin: 0 0 16px;
+      padding: 12px 14px;
+      border-radius: 10px;
+      background: #fff1f1;
+      border: 1px solid #ffb8b8;
+      color: #d62828;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .limit-message.show {
+      display: block;
     }
 
     .category-block {
@@ -223,26 +238,34 @@
   <div class="page">
     <h1>Подбор рубрик</h1>
 
-    <div class="top-panel">
-      <div class="file-info">
-        Источник данных: <strong>rubrics.xlsx</strong>
-      </div>
-    </div>
-
     <div class="layout">
       <div class="left-panel">
-        <h2 class="panel-title">Рубрики 2-го уровня</h2>
+        <h2 class="panel-title">Выберите 10 рубрик из выпадающего списка</h2>
+
+        <div id="counterBox" class="counter-box">
+          Выбрано рубрик: 0
+        </div>
+
+        <div id="limitMessage" class="limit-message">
+          Свыше 10 оплачивается дополнительно
+        </div>
 
         <div class="search-box">
           <input type="text" id="searchInput" placeholder="Поиск по рубрикам..." />
         </div>
 
-        <div id="categoriesContainer"></div>
+        <div id="categoriesContainer">
+          <div class="empty">Загрузка данных...</div>
+        </div>
       </div>
 
       <div class="right-panel">
         <h2 class="panel-title">Выбранные рубрики</h2>
-        <div id="selectedList" class="selected-list"></div>
+        <div class="panel-subtitle">ID рубрики - Название</div>
+
+        <div id="selectedList" class="selected-list">
+          <div class="empty">Пока ничего не выбрано.</div>
+        </div>
 
         <div class="actions">
           <button class="action-btn" id="copyBtn">Скопировать список</button>
@@ -253,7 +276,7 @@
   </div>
 
   <script>
-    const EXCEL_FILE = 'rubrics.xlsx';
+    const EXCEL_FILE = './rubrics.xlsx';
 
     let groupedData = {};
     let selectedItems = new Map();
@@ -261,6 +284,11 @@
     async function loadExcel() {
       try {
         const response = await fetch(EXCEL_FILE);
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
         const arrayBuffer = await response.arrayBuffer();
         const workbook = XLSX.read(arrayBuffer, { type: 'array' });
         const firstSheetName = workbook.SheetNames[0];
@@ -274,10 +302,12 @@
         parseRows(rows);
         renderCategories(groupedData);
         renderSelected();
+        updateLimitMessage();
+        updateCounter();
       } catch (error) {
         console.error('Ошибка загрузки Excel:', error);
         document.getElementById('categoriesContainer').innerHTML =
-          '<div class="empty">Не удалось загрузить файл Excel. Проверь имя файла и путь.</div>';
+          '<div class="empty">Не удалось загрузить файл Excel. Проверь, что GitHub Pages включен и файл rubrics.xlsx лежит в корне репозитория.</div>';
       }
     }
 
@@ -285,18 +315,18 @@
       groupedData = {};
 
       rows.forEach((row, index) => {
-        const level2 = (row[1] || '').toString().trim(); // колонка B
-        const rubric = (row[2] || '').toString().trim(); // колонка C
+        const level2 = (row[1] || '').toString().trim();
+        const rubric = (row[2] || '').toString().trim();
+        const code = (row[3] || '').toString().trim();
 
-        // пропускаем пустые строки
         if (!level2 || !rubric) return;
 
-        // если первая строка похожа на заголовки — тоже пропустим
         if (
           index === 0 &&
           (
             level2.toLowerCase().includes('рубр') ||
-            rubric.toLowerCase().includes('рубр')
+            rubric.toLowerCase().includes('рубр') ||
+            code.toLowerCase().includes('код')
           )
         ) {
           return;
@@ -306,9 +336,15 @@
           groupedData[level2] = [];
         }
 
-        // защита от дублей
-        if (!groupedData[level2].includes(rubric)) {
-          groupedData[level2].push(rubric);
+        const exists = groupedData[level2].some(item =>
+          item.rubric === rubric && item.code === code
+        );
+
+        if (!exists) {
+          groupedData[level2].push({
+            code,
+            rubric
+          });
         }
       });
     }
@@ -343,30 +379,36 @@
         const list = document.createElement('div');
         list.className = 'subcategory-list';
 
-        subcategories.forEach((sub, subIndex) => {
+        subcategories.forEach((itemData, subIndex) => {
           const item = document.createElement('div');
           item.className = 'subcategory-item';
 
           const checkbox = document.createElement('input');
           checkbox.type = 'checkbox';
           checkbox.id = `cb_${categoryIndex}_${subIndex}`;
-          checkbox.checked = selectedItems.has(makeKey(category, sub));
+          checkbox.checked = selectedItems.has(makeKey(category, itemData.code, itemData.rubric));
 
           checkbox.addEventListener('change', (e) => {
-            const key = makeKey(category, sub);
+            const key = makeKey(category, itemData.code, itemData.rubric);
 
             if (e.target.checked) {
-              selectedItems.set(key, { category, sub });
+              selectedItems.set(key, {
+                category,
+                code: itemData.code,
+                sub: itemData.rubric
+              });
             } else {
               selectedItems.delete(key);
             }
 
             renderSelected();
+            updateLimitMessage();
+            updateCounter();
           });
 
           const label = document.createElement('label');
           label.htmlFor = checkbox.id;
-          label.textContent = sub;
+          label.textContent = itemData.rubric;
 
           item.appendChild(checkbox);
           item.appendChild(label);
@@ -388,22 +430,23 @@
         return;
       }
 
-      Array.from(selectedItems.values()).forEach(({ category, sub }) => {
+      Array.from(selectedItems.values()).forEach(({ category, code, sub }) => {
         const item = document.createElement('div');
         item.className = 'selected-item';
 
         const text = document.createElement('div');
         text.className = 'selected-text';
-        text.innerHTML = `<strong>${escapeHtml(category)}</strong><br>${escapeHtml(sub)}`;
+        text.textContent = code ? `${code} — ${sub}` : sub;
 
         const removeBtn = document.createElement('button');
         removeBtn.className = 'remove-btn';
         removeBtn.textContent = 'Удалить';
 
         removeBtn.addEventListener('click', () => {
-          selectedItems.delete(makeKey(category, sub));
-          syncCheckbox(category, sub, false);
-          renderSelected();
+          selectedItems.delete(makeKey(category, code, sub));
+          rerenderCurrent();
+          updateLimitMessage();
+          updateCounter();
         });
 
         item.appendChild(text);
@@ -412,26 +455,61 @@
       });
     }
 
-    function syncCheckbox(category, sub, checked) {
-      const container = document.getElementById('categoriesContainer');
-      const labels = container.querySelectorAll('.subcategory-item');
+    function updateLimitMessage() {
+      const limitMessage = document.getElementById('limitMessage');
 
-      labels.forEach(item => {
-        const checkbox = item.querySelector('input[type="checkbox"]');
-        const label = item.querySelector('label');
-
-        if (label && label.textContent === sub && checkbox) {
-          checkbox.checked = checked;
-        }
-      });
+      if (selectedItems.size >= 11) {
+        limitMessage.classList.add('show');
+      } else {
+        limitMessage.classList.remove('show');
+      }
     }
 
-    function makeKey(category, sub) {
-      return `${category}|||${sub}`;
+    function updateCounter() {
+      const counterBox = document.getElementById('counterBox');
+      counterBox.textContent = `Выбрано рубрик: ${selectedItems.size}`;
+    }
+
+    function rerenderCurrent() {
+      const query = document.getElementById('searchInput').value.trim().toLowerCase();
+
+      if (!query) {
+        renderCategories(groupedData);
+      } else {
+        const filtered = {};
+
+        Object.entries(groupedData).forEach(([category, items]) => {
+          const categoryMatch = category.toLowerCase().includes(query);
+          const itemMatches = items.filter(item =>
+            item.rubric.toLowerCase().includes(query) ||
+            item.code.toLowerCase().includes(query)
+          );
+
+          if (categoryMatch) {
+            filtered[category] = items;
+          } else if (itemMatches.length) {
+            filtered[category] = itemMatches;
+          }
+        });
+
+        renderCategories(filtered);
+
+        document.querySelectorAll('.category-block').forEach(block => {
+          block.classList.add('open');
+        });
+      }
+
+      renderSelected();
+      updateLimitMessage();
+      updateCounter();
+    }
+
+    function makeKey(category, code, sub) {
+      return `${category}|||${code}|||${sub}`;
     }
 
     function escapeHtml(text) {
-      return text
+      return String(text)
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
@@ -439,41 +517,13 @@
         .replace(/'/g, '&#039;');
     }
 
-    document.getElementById('searchInput').addEventListener('input', function () {
-      const query = this.value.trim().toLowerCase();
-
-      if (!query) {
-        renderCategories(groupedData);
-        return;
-      }
-
-      const filtered = {};
-
-      Object.entries(groupedData).forEach(([category, subs]) => {
-        const categoryMatch = category.toLowerCase().includes(query);
-        const subMatches = subs.filter(sub => sub.toLowerCase().includes(query));
-
-        if (categoryMatch) {
-          filtered[category] = subs;
-        } else if (subMatches.length) {
-          filtered[category] = subMatches;
-        }
-      });
-
-      renderCategories(filtered);
-
-      // автоматически раскрываем отфильтрованные блоки
-      document.querySelectorAll('.category-block').forEach(block => {
-        block.classList.add('open');
-      });
-    });
+    document.getElementById('searchInput').addEventListener('input', rerenderCurrent);
 
     document.getElementById('clearBtn').addEventListener('click', () => {
       selectedItems.clear();
-      document.querySelectorAll('input[type="checkbox"]').forEach(cb => {
-        cb.checked = false;
-      });
-      renderSelected();
+      rerenderCurrent();
+      updateLimitMessage();
+      updateCounter();
     });
 
     document.getElementById('copyBtn').addEventListener('click', async () => {
@@ -483,7 +533,7 @@
       }
 
       const text = Array.from(selectedItems.values())
-        .map(item => `${item.category} — ${item.sub}`)
+        .map(item => item.code ? `${item.code} — ${item.sub}` : item.sub)
         .join('\n');
 
       try {
